@@ -123,7 +123,27 @@ function updateMovement() {
 
     // Enforce grid boundaries
     const halfGrid = GRID_SIZE / 2;
-    if (targetX >= -halfGrid && targetX < halfGrid && targetZ >= -halfGrid && targetZ  {
+    if (targetX >= -halfGrid && targetX < halfGrid && targetZ >= -halfGrid && targetZ < halfGrid) {
+        playerGridPos.x = targetX;
+        playerGridPos.z = targetZ;
+        
+        // Translate grid coordinates into 3D space positions
+        player.position.x = playerGridPos.x * CELL_SIZE + CELL_SIZE / 2;
+        player.position.z = playerGridPos.z * CELL_SIZE + CELL_SIZE / 2;
+        
+        updateCameraPosition();
+        checkCollisions();
+    }
+}
+
+function updateCameraPosition() {
+    camera.position.set(player.position.x, player.position.y + 4, player.position.z + 8);
+    camera.lookAt(player.position);
+}
+
+function checkCollisions() {
+    // 1. Hazard Overlaps
+    hazards.forEach(h => {
         if (h.gridX === playerGridPos.x && h.gridZ === playerGridPos.z) {
             playerHealth = Math.max(0, playerHealth - 1.5);
             healthEl.textContent = Math.floor(playerHealth);
@@ -150,7 +170,7 @@ function updateMovement() {
     }
 
     // 3. System Data Core Extraction Check
-    if (portal && playerGridPos.x === playerGridPos.x && playerGridPos.z === portal.gridZ) {
+    if (portal && playerGridPos.x === portal.gridX && playerGridPos.z === portal.gridZ) {
         triggerEndgame(true);
     }
 }

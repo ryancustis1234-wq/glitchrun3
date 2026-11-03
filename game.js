@@ -249,7 +249,6 @@ function update() {
 // Paint initial grid preview on load canvas
 ctx.fillStyle = '#1a1a1a';
 ctx.fillRect(0, 0, canvas.width, canvas.height);
-Use code with caution.
 
 Step 2: Clear out the script from your HTML file
 

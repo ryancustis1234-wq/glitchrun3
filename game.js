@@ -1,264 +1,241 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-// DOM Elements
-const screenOverlay = document.getElementById('screen-overlay');
-const menuContent = document.getElementById('menu-content');
-const lootSign = document.getElementById('loot-count');
-const timerSign = document.getElementById('timer');
-const healthBar = document.getElementById('health-bar');
-
-// Game State Configurations
-let gameActive = false;
-let score = 0;
-let timeLeft = 30;
-let timerInterval;
-
-// Player Object
-const player = {
-    x: 50,
-    y: 50,
-    radius: 15,
-    speed: 4,
-    health: 100,
-    maxHealth: 100
-};
-
-// Game Entities arrays
-let enemies = [];
+// Game Core Variables
+let scene, camera, renderer;
+let obstacles = [];
 let lootItems = [];
+let extractionPortal;
+let audioCtx;
 
-// Extraction Zone definition
-const extractionZone = {
-    x: 700,
-    y: 500,
-    width: 80,
-    height: 80,
-    active: false
-};
+// Gameplay Variables
+let gameActive = false;
+let lootCollected = 0;
+let timeRemaining = 30;
+let countdownInterval;
+let playerPositionZ = 0;
 
-// Keyboard Input Tracking
-const keys = {};
-window.addEventListener('keydown', e => keys[e.key] = true);
-window.addEventListener('keyup', e => keys[e.key] = false);
+// SECURE EVENT LISTENERS (Replaces inline onclick)
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('startButton').addEventListener('click', startGame);
+    document.getElementById('restartButton').addEventListener('click', rebootGame);
+});
 
-// Initialize/Reset settings
-function initGame() {
-    score = 0;
-    timeLeft = 30;
-    player.x = 50;
-    player.y = 50;
-    player.health = 100;
-    extractionZone.active = false;
-    enemies = [];
-    lootItems = [];
-
-    lootSign.innerText = `0/5`;
-    lootSign.style.color = '#ffd700';
-    timerSign.innerText = `Time Left: 30s`;
-    healthBar.style.width = '100%';
-
-    // Spawn 5 random loot elements across the map
-    for (let i = 0; i < 5; i++) {
-        lootItems.push({
-            x: Math.random() * (canvas.width - 100) + 50,
-            y: Math.random() * (canvas.height - 100) + 50,
-            radius: 8
-        });
-    }
-
-    // Spawn starting guard enemies
-    for (let i = 0; i < 3; i++) {
-        enemies.push({
-            x: Math.random() * (canvas.width - 300) + 250,
-            y: Math.random() * (canvas.height - 300) + 250,
-            radius: 12,
-            speed: Math.random() * 1.5 + 1.5
-        });
+// Initialize Web Audio API safely after a user gesture
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 }
 
-// Make startGame global so the HTML button can trigger it
-window.startGame = function() {
-    initGame();
-    screenOverlay.classList.add('hidden');
+// Play synthetic sound effects using oscillator nodes
+function playSynthSound(freq, type, duration) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    
+    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+    
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+// Launch Game Instance
+function startGame() {
+    initAudio();
+    playSynthSound(440, 'sawtooth', 0.3); // Boot sound
+    
+    document.getElementById('start-screen').style.display = 'none';
     gameActive = true;
+    
+    init3DScene();
+    startTimer();
+    animate();
+}
 
-    // Start Countdown Timer Clock
-    clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
+// Setup Three.js World Rendering Environment
+function init3DScene() {
+    const container = document.getElementById('canvas-container');
+    container.innerHTML = ''; // Wipe past instances
+    obstacles = [];
+    lootItems = [];
+    lootCollected = 0;
+    timeRemaining = 30;
+    playerPositionZ = 0;
+    
+    document.getElementById('loot-count').innerText = lootCollected;
+    document.getElementById('timer').innerText = timeRemaining;
+
+    // Create Scene & Camera Setup
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x05050a, 0.03);
+    
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 2, 5);
+
+    // Renderer Configuration
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(scene.fog.color);
+    container.appendChild(renderer.domElement);
+
+    // Dynamic Lighting
+    const ambientLight = new THREE.AmbientLight(0x111133);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0x00ffcc, 0.8);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+
+    // Build Retro Grid Ground Network
+    const gridHelper = new THREE.GridHelper(200, 50, 0xff0055, 0x111122);
+    gridHelper.position.y = 0;
+    scene.add(gridHelper);
+
+    // Spawn Glitch Obstacles (Irregular Shapes)
+    for (let i = 0; i < 20; i++) {
+        const geoType = Math.random() > 0.5 ? new THREE.IcosahedronGeometry(1.2, 0) : new THREE.ConeGeometry(0.8, 2, 4);
+        const mat = new THREE.MeshPhongMaterial({
+            color: 0xff0055,
+            wireframe: Math.random() > 0.3,
+            emissive: 0x330011
+        });
+        const mesh = new THREE.Mesh(geoType, mat);
+        mesh.position.set((Math.random() - 0.5) * 15, 1, -Math.random() * 80);
+        scene.add(mesh);
+        obstacles.push(mesh);
+    }
+
+    // Spawn Loot Cubes
+    for (let i = 0; i < 5; i++) {
+        const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, roughness: 0.1, metalness: 0.8 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set((Math.random() - 0.5) * 12, 0.6, -20 - (i * 12));
+        scene.add(mesh);
+        lootItems.push(mesh);
+    }
+
+    // Spawn Timed Extraction Portal Setup
+    const portalGeo = new THREE.TorusGeometry(2, 0.2, 8, 24);
+    const portalMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true });
+    extractionPortal = new THREE.Mesh(portalGeo, portalMat);
+    extractionPortal.position.set(0, 2, -85);
+    scene.add(extractionPortal);
+
+    // Keyboard Controller Bindings
+    window.addEventListener('keydown', handleMovement);
+    window.addEventListener('resize', onWindowResize);
+}
+
+// Controller Actions
+function handleMovement(e) {
+    if (!gameActive) return;
+    if (e.key === 'ArrowLeft' || e.key === 'a') camera.position.x -= 0.5;
+    if (e.key === 'ArrowRight' || e.key === 'd') camera.position.x += 0.5;
+}
+
+// Countdown Clock Automation Rule
+function startTimer() {
+    clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
         if (!gameActive) return;
-        timeLeft--;
-        timerSign.innerText = `Time Left: ${timeLeft}s`;
+        timeRemaining--;
+        document.getElementById('timer').innerText = timeRemaining;
 
-        // Slowly spawn additional enemies
-        if (timeLeft % 7 === 0) {
-            enemies.push({
-                x: Math.random() * canvas.width,
-                y: 0,
-                radius: 12,
-                speed: 2.5
-            });
-        }
-
-        if (timeLeft <= 0) {
-            endGame(false, "TIME EXPIRED");
+        if (timeRemaining <= 0) {
+            endGame(false, "TIME EXPIRED: SYSTEM OVERLOAD");
         }
     }, 1000);
-
-    // Fire up rendering loop
-    requestAnimationFrame(update);
 }
 
-function endGame(victory, message) {
-    gameActive = false;
-    clearInterval(timerInterval);
-    screenOverlay.classList.remove('hidden');
-    
-    if (victory) {
-        screenOverlay.className = ""; 
-        screenOverlay.classList.add('victory');
-        menuContent.innerHTML = `
-            <h1>MISSION SUCCESS!</h1>
-            <p>You secured the cargo and escaped alive.</p>
-            <button class="btn" onclick="startGame()">Play Again</button>
-        `;
-    } else {
-        screenOverlay.className = "";
-        menuContent.innerHTML = `
-            <h1>MISSION FAILED</h1>
-            <p>Reason: ${message}</p>
-            <button class="btn" style="background:#dc3545;" onclick="startGame()">Try Again</button>
-        `;
-    }
-}
-
-// Mathematical Distance Helper
-function getDistance(x1, y1, x2, y2) {
-    return Math.hypot(x2 - x1, y2 - y1);
-}
-
-// Main Engine Loop
-function update() {
+// Main Frame Render Cycle
+function animate() {
     if (!gameActive) return;
+    requestAnimationFrame(animate);
 
-    // Clear Viewport Matrix
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Auto-advance player down the digital path
+    camera.position.z -= 0.12;
+    playerPositionZ = camera.position.z;
 
-    // --- 1. PLAYER MOVEMENT & COLLISION BOUNDS ---
-    if (keys['ArrowUp'] || keys['w'] || keys['W']) player.y -= player.speed;
-    if (keys['ArrowDown'] || keys['s'] || keys['S']) player.y += player.speed;
-    if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.x -= player.speed;
-    if (keys['ArrowRight'] || keys['d'] || keys['D']) player.x += player.speed;
-
-    // Keep Player restricted on screen edges
-    player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
-    player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
-
-    // --- 2. DRAW EXTRACTION ZONE ---
-    if (extractionZone.active) {
-        ctx.fillStyle = 'rgba(40, 167, 69, 0.3)';
-        ctx.fillRect(extractionZone.x, extractionZone.y, extractionZone.width, extractionZone.height);
-        ctx.strokeStyle = '#28a745';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(extractionZone.x, extractionZone.y, extractionZone.width, extractionZone.height);
+    // Rotate Obstacles & Portals for active visual glitch effect
+    obstacles.forEach((obj, idx) => {
+        obj.rotation.x += 0.01;
+        obj.rotation.y += 0.02;
         
-        // Text Label over pad
-        ctx.fillStyle = '#28a745';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.fillText("ESCAPE HERE", extractionZone.x + 2, extractionZone.y - 8);
+        // Basic Proximity Hazard Check
+        if (camera.position.distanceTo(obj.position) < 1.3) {
+            endGame(false, "COLLISION DETECTED: CORE CORRUPTED");
+        }
+    });
 
-        // Win condition check
-        if (player.x > extractionZone.x && player.x < extractionZone.x + extractionZone.width &&
-            player.y > extractionZone.y && player.y < extractionZone.y + extractionZone.height) {
-            endGame(true);
-            return;
+    // Check Loot Item Intersections
+    lootItems.forEach((loot, idx) => {
+        loot.rotation.y += 0.04;
+        
+        if (loot.visible && camera.position.distanceTo(loot.position) < 1.5) {
+            loot.visible = false;
+            lootCollected++;
+            document.getElementById('loot-count').innerText = lootCollected;
+            playSynthSound(880, 'sine', 0.15); // Loot pickup sound
+        }
+    });
+
+    // Animate the Extraction Portal ring
+    if (extractionPortal) {
+        extractionPortal.rotation.z += 0.03;
+        
+        // Victory Condition Check
+        if (camera.position.z <= extractionPortal.position.z + 1) {
+            if (lootCollected >= 3) {
+                endGame(true, `SUCCESSFULLY EXTRACTED ${lootCollected} OBJECTS`);
+            } else {
+                endGame(false, "EXTRACTION DENIED: INSUFFICIENT LOOT QUANTITY");
+            }
         }
     }
 
-    // --- 3. LOOT COLLECTION ---
-    lootItems.forEach((loot, index) => {
-        // Draw Loot
-        ctx.beginPath();
-        ctx.arc(loot.x, loot.y, loot.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffd700';
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#ffd700';
-        ctx.fill();
-        ctx.shadowBlur = 0; 
-
-        // Collision check
-        if (getDistance(player.x, player.y, loot.x, loot.y) < player.radius + loot.radius) {
-            lootItems.splice(index, 1);
-            score++;
-            lootSign.innerText = `${score}/5`;
-            
-            if (score >= 5) {
-                extractionZone.active = true;
-                lootSign.style.color = '#28a745';
-                lootSign.innerText = `READY TO EXTRACT!`;
-            }
-        }
-    });
-
-    // --- 4. ENEMY AI INTELLIGENCE & TRACKING ---
-    enemies.forEach(enemy => {
-        const dx = player.x - enemy.x;
-        const dy = player.y - enemy.y;
-        const angle = Math.atan2(dy, dx);
-        
-        enemy.x += Math.cos(angle) * enemy.speed;
-        enemy.y += Math.sin(angle) * enemy.speed;
-
-        // Render Threat Drones
-        ctx.beginPath();
-        ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff3333';
-        ctx.fill();
-
-        // Drone Sensor Center Core
-        ctx.beginPath();
-        ctx.arc(enemy.x, enemy.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#000';
-        ctx.fill();
-
-        // Collision damage check
-        if (getDistance(player.x, player.y, enemy.x, enemy.y) < player.radius + enemy.radius) {
-            player.health -= 0.5;
-            healthBar.style.width = `${Math.max(0, player.health)}%`;
-            
-            if (player.health <= 0) {
-                endGame(false, "ELIMINATED BY ENEMY THREATS");
-                return;
-            }
-        }
-    });
-
-    // --- 5. RENDER PLAYER MODEL ---
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#007bff';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    requestAnimationFrame(update);
+    renderer.render(scene, camera);
 }
 
-// Paint initial grid preview on load canvas
-ctx.fillStyle = '#1a1a1a';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-Step 2: Clear out the script from your HTML file
+// Termination Phase Controller
+function endGame(isVictory, statusText) {
+    gameActive = false;
+    clearInterval(countdownInterval);
+    
+    if (isVictory) {
+        playSynthSound(600, 'triangle', 0.5);
+        document.getElementById('end-title').innerText = "SYSTEM SECURED";
+        document.getElementById('end-title').style.color = "#00ffcc";
+        document.getElementById('game-over-screen').style.borderColor = "#00ffcc";
+    } else {
+        playSynthSound(150, 'sawtooth', 0.6);
+        document.getElementById('end-title').innerText = "SYSTEM FAIL";
+        document.getElementById('end-title').style.color = "#ff0055";
+        document.getElementById('game-over-screen').style.borderColor = "#ff0055";
+    }
 
-Remember, since the game logic is now inside game.js, you must remove the duplicate code from your index.html file and link the file properly. Ensure the bottom of your index.html file looks exactly like this right before it ends:
-html
-    <!-- ... Rest of your game layout divs ... -->
-    </div>
-</div>
+    document.getElementById('end-status').innerText = statusText;
+    document.getElementById('game-over-screen').style.display = 'flex';
+}
 
-<!-- This links your HTML directly to the script above -->
-<script src="game.js"></script>
+// Reboot Game Routine
+function rebootGame() {
+    document.getElementById('game-over-screen').style.display = 'none';
+    gameActive = true;
+    init3DScene();
+    startTimer();
+    animate();
+}
 
-</body>
-</html>
+// Window Responsive Scaler
+function onWindowResize() {
+    if (!camera || !renderer) return;
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}

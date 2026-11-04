@@ -2,7 +2,6 @@
 let scene, camera, renderer;
 let player;
 let keys = {};
-let gridWidth = 5;
 let laneWidth = 2;
 
 // Game state tracker
@@ -53,7 +52,7 @@ function init() {
     window.addEventListener('keyup', (e) => { keys[e.key] = false; });
     window.addEventListener('resize', onWindowResize);
 
-    // Bind the start button explicitly
+    // Set up the start button click action
     setupStartButton();
 
     // Listen for mouse movements when pointer is locked
@@ -67,27 +66,23 @@ function init() {
 }
 
 function setupStartButton() {
-    // Find your start button in index.html
-    const startBtn = document.getElementById('startButton') || document.querySelector('button');
-    const startMenu = document.getElementById('startMenu') || document.getElementById('menu') || document.getElementById('overlay');
+    const startBtn = document.getElementById('startButton');
+    const startMenu = document.getElementById('startMenu');
 
     if (startBtn) {
         startBtn.addEventListener('click', (e) => {
-            // Prevent HTML bubble issues
-            e.stopPropagation(); 
+            e.stopPropagation(); // Stop click from bleeding into the 3D scene canvas
             
-            // Hide the UI menu overlay
             if (startMenu) startMenu.style.display = 'none';
             
-            // Activate game and capture mouse loop
             gameStarted = true;
             renderer.domElement.requestPointerLock();
         });
     }
 
-    // Allow re-locking cursor if player clicks screen *after* game has started
+    // If player loses focus/pointerlock, let them click screen to lock it back
     renderer.domElement.addEventListener('click', () => {
-        if (gameStarted) {
+        if (gameStarted && document.pointerLockElement !== renderer.domElement) {
             renderer.domElement.requestPointerLock();
         }
     });
@@ -95,9 +90,10 @@ function setupStartButton() {
 
 function createGridTrack() {
     const tileGeo = new THREE.BoxGeometry(laneWidth - 0.1, 0.1, laneWidth - 0.1);
-    const tileMat = new THREE.MeshBasicMaterial({ color: 0x111133, wireframe: false });
+    const tileMat = new THREE.MeshBasicMaterial({ color: 0x111133 });
 
-    for (let x = -2; x <= 2; x++) {
+    // Generate an expansive grid around the origin
+    for (let x = -10; x <= 10; x++) {
         for (let z = -20; z <= 20; z++) {
             const tile = new THREE.Mesh(tileGeo, tileMat);
             tile.position.set(x * laneWidth, -0.05, z * laneWidth);
@@ -113,46 +109,53 @@ function createGridTrack() {
 }
 
 function onMouseMove(event) {
-    // Only look around if game started and pointer lock is active
     if (gameStarted && document.pointerLockElement === renderer.domElement) {
         cameraYaw -= event.movementX * mouseSensitivity;
         cameraPitch += event.movementY * mouseSensitivity;
 
-        // Limit vertical looking angles so camera doesn't flip upside down
+        // Prevent looking completely upside down
         cameraPitch = Math.max(0.1, Math.min(1.4, cameraPitch));
     }
 }
 
 function handleInput() {
-    // Stop movement processing if the game hasn't officially started
     if (!gameStarted) return;
 
     const moveSpeed = 0.15;
 
-    // Movement relative to world axes
-    if (keys['a'] || keys['A']) {
-        player.position.x -= moveSpeed;
-    }
-    if (keys['d'] || keys['D']) {
-        player.position.x += moveSpeed;
-    }
+    // 1. Calculate the forward direction vector based purely on where the camera is facing horizontally
+    let forwardX = -Math.sin(cameraYaw);
+    let forwardZ = -Math.cos(cameraYaw);
+
+    // 2. Calculate the right/strafe vector (perpendicular to forward)
+    let rightX = -Math.cos(cameraYaw);
+    let rightZ = Math.sin(cameraYaw);
+
+    // W / S: Move forward/backward in the direction of the camera view
     if (keys['w'] || keys['W']) {
-        player.position.z -= moveSpeed; 
+        player.position.x += forwardX * moveSpeed;
+        player.position.z += forwardZ * moveSpeed;
     }
     if (keys['s'] || keys['S']) {
-        player.position.z += moveSpeed; 
+        player.position.x -= forwardX * moveSpeed;
+        player.position.z -= forwardZ * moveSpeed;
     }
 
-    // Keep player confined to the grid boundary widthwise
-    const maxBoundary = 2.5 * laneWidth;
-    if (player.position.x < -maxBoundary) player.position.x = -maxBoundary;
-    if (player.position.x > maxBoundary) player.position.x = maxBoundary;
+    // A / D: Strafe left/right relative to the camera view
+    if (keys['a'] || keys['A']) {
+        player.position.x -= rightX * moveSpeed;
+        player.position.z -= rightZ * moveSpeed;
+    }
+    if (keys['d'] || keys['D']) {
+        player.position.x += rightX * moveSpeed;
+        player.position.z += rightZ * moveSpeed;
+    }
 }
 
 function updateCamera() {
     const distance = 6; 
 
-    // Spherical coordinate math to orbit camera around the player
+    // Spherical coordinate offset tracking
     const height = distance * Math.sin(cameraPitch);
     const horizontalDistance = distance * Math.cos(cameraPitch);
 
@@ -160,8 +163,14 @@ function updateCamera() {
     camera.position.y = player.position.y + height;
     camera.position.z = player.position.z + horizontalDistance * Math.cos(cameraYaw);
 
-    // Focus camera target directly on the player
+    // Lock target directly onto the player's core body
     camera.lookAt(player.position.x, player.position.y + 0.5, player.position.z);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function animate() {
@@ -171,12 +180,6 @@ function animate() {
     updateCamera();
 
     renderer.render(scene, camera);
-}
-
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 // Start setup

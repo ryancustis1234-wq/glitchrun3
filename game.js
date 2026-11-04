@@ -182,5 +182,7 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// Start setup
-init();
+// Automatically starts the game once the HTML body and index page are fully loaded
+window.onload = function() {
+    init();
+};

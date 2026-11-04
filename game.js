@@ -186,3 +186,9 @@ function animate() {
 window.onload = function() {
     init();
 };
+
+// ----------------------------------------------------
+// REQUIRED CLOSING TAGS TO CONNECT BACK TO YOUR INDEX
+// ----------------------------------------------------
+<body>
+<index>

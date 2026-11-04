@@ -5,6 +5,9 @@ let keys = {};
 let gridWidth = 5;
 let laneWidth = 2;
 
+// Game state tracker
+let gameStarted = false;
+
 // Camera angle tracking via mouse
 let cameraPitch = 0.6; // Vertical tilt angle (Up/Down) in radians
 let cameraYaw = 0;     // Horizontal rotation angle (Left/Right) in radians
@@ -50,10 +53,8 @@ function init() {
     window.addEventListener('keyup', (e) => { keys[e.key] = false; });
     window.addEventListener('resize', onWindowResize);
 
-    // Click to lock mouse pointer for looking around
-    renderer.domElement.addEventListener('click', () => {
-        renderer.domElement.requestPointerLock();
-    });
+    // Bind the start button explicitly
+    setupStartButton();
 
     // Listen for mouse movements when pointer is locked
     document.addEventListener('mousemove', onMouseMove);
@@ -63,6 +64,33 @@ function init() {
 
     // Start Loop
     animate();
+}
+
+function setupStartButton() {
+    // Find your start button in index.html
+    const startBtn = document.getElementById('startButton') || document.querySelector('button');
+    const startMenu = document.getElementById('startMenu') || document.getElementById('menu') || document.getElementById('overlay');
+
+    if (startBtn) {
+        startBtn.addEventListener('click', (e) => {
+            // Prevent HTML bubble issues
+            e.stopPropagation(); 
+            
+            // Hide the UI menu overlay
+            if (startMenu) startMenu.style.display = 'none';
+            
+            // Activate game and capture mouse loop
+            gameStarted = true;
+            renderer.domElement.requestPointerLock();
+        });
+    }
+
+    // Allow re-locking cursor if player clicks screen *after* game has started
+    renderer.domElement.addEventListener('click', () => {
+        if (gameStarted) {
+            renderer.domElement.requestPointerLock();
+        }
+    });
 }
 
 function createGridTrack() {
@@ -85,17 +113,20 @@ function createGridTrack() {
 }
 
 function onMouseMove(event) {
-    // Only update angles if the player has clicked and locked their cursor
-    if (document.pointerLockElement === renderer.domElement) {
+    // Only look around if game started and pointer lock is active
+    if (gameStarted && document.pointerLockElement === renderer.domElement) {
         cameraYaw -= event.movementX * mouseSensitivity;
         cameraPitch += event.movementY * mouseSensitivity;
 
-        // Limit looking straight up or straight down to prevent camera flipping
+        // Limit vertical looking angles so camera doesn't flip upside down
         cameraPitch = Math.max(0.1, Math.min(1.4, cameraPitch));
     }
 }
 
 function handleInput() {
+    // Stop movement processing if the game hasn't officially started
+    if (!gameStarted) return;
+
     const moveSpeed = 0.15;
 
     // Movement relative to world axes
@@ -121,7 +152,7 @@ function handleInput() {
 function updateCamera() {
     const distance = 6; 
 
-    // Spherical coordinate math to orbit camera around the player based on pitch and yaw angles
+    // Spherical coordinate math to orbit camera around the player
     const height = distance * Math.sin(cameraPitch);
     const horizontalDistance = distance * Math.cos(cameraPitch);
 
@@ -129,7 +160,7 @@ function updateCamera() {
     camera.position.y = player.position.y + height;
     camera.position.z = player.position.z + horizontalDistance * Math.cos(cameraYaw);
 
-    // Always focus camera target directly on the player
+    // Focus camera target directly on the player
     camera.lookAt(player.position.x, player.position.y + 0.5, player.position.z);
 }
 
@@ -148,4 +179,5 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+// Start setup
 init();
